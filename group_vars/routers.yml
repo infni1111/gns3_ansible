@@ -1,0 +1,21 @@
+---
+# Connexion Ansible aux routeurs MikroTik CHR (RouterOS) — PHASE 2 (SSH).
+#
+# Prérequis : l'équipement a déjà une IP de management joignable et SSH activé.
+# C'est le rôle du bootstrap par console (playbooks/bootstrap_routers.yml) qui
+# tourne AVANT cette phase.
+#
+# La collection requise : community.routeros
+#   ansible-galaxy collection install community.routeros
+
+ansible_connection:  ansible.netcommon.network_cli
+ansible_network_os:  community.routeros.routeros
+ansible_user:        admin
+# Le bootstrap console a posé mgmt_password (CHR 7.x exige un mot de passe non vide).
+# La phase SSH se connecte donc avec ce même mot de passe, défini dans group_vars/all.yml.
+ansible_password:    "{{ mgmt_password }}"
+ansible_become:      false
+
+# ansible_host est l'IP de management, pas la console GNS3.
+# Le bootstrap la pose ; on la recalcule ici par convention pour la phase SSH.
+# (surchargeable par host_vars si tu préfères des IP explicites)

@@ -1,0 +1,21 @@
+---
+- name: Créer un projet GNS3
+  hosts: localhost
+  connection: local
+  vars_files:
+    - ../vars/gns3.yml
+
+  tasks:
+    - name: Créer le projet
+      uri:
+        url: "{{ gns3_host }}/projects"
+        method: POST
+        body_format: json
+        body:
+          name: "{{ project_name }}"
+        status_code: 201
+      register: project
+
+    - name: Afficher l'ID du projet
+      debug:
+        msg: "Projet créé → ID : {{ project.json.project_id }}"

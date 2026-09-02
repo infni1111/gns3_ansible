@@ -1,0 +1,19 @@
+---
+# Variables communes à tous les hôtes de l'inventaire GNS3.
+
+# Serveur GNS3 (utilisé par les playbooks qui parlent à l'API, pas aux équipements).
+gns3_host: "http://localhost:3080/v2"
+
+# Réseau de management du lab : sous-réseau où chaque équipement reçoit
+# une IP joignable depuis l'hôte (posée pendant le bootstrap console).
+# Convention : l'octet final = index du nœud (r1 -> .11, r2 -> .12, ...).
+mgmt_network: "192.168.100.0"
+mgmt_prefix: 24
+mgmt_gateway: "192.168.100.1"
+
+# Mot de passe admin posé pendant le bootstrap console et réutilisé en phase SSH.
+# CHR 7.x IMPOSE un mot de passe non vide au premier login : on ne peut donc pas
+# rester sur le mot de passe vide par défaut. Les deux phases doivent s'accorder
+# sur cette valeur (bootstrap --new-password ET ansible_password en SSH).
+# À surcharger (vault de préférence) en dehors d'un lab.
+mgmt_password: "Lab123!"

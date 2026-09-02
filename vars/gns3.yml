@@ -1,0 +1,2 @@
+gns3_host: "http://localhost:3080/v2"
+project_name: "mon_labo_ansible"

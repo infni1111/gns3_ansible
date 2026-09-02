@@ -1,0 +1,40 @@
+---
+# PHASE 2 — Configuration des routeurs MikroTik via SSH (RouterOS).
+#
+# Prérequis :
+#   - bootstrap effectué (IP de management + SSH actifs)  -> playbooks/bootstrap_routers.yml
+#   - collection installée : ansible-galaxy collection install community.routeros
+#
+# Lancement :
+#   ansible-playbook playbooks/configure_routers.yml
+#
+# La config par routeur vit dans host_vars/<nom>.yml (ex: host_vars/r1.yml).
+
+- name: Configurer les routeurs MikroTik
+  hosts: routers
+  gather_facts: false
+
+  tasks:
+    - name: Récupérer les facts RouterOS
+      community.routeros.facts:
+      register: ros_facts
+
+    - name: Définir l'identité système = nom d'inventaire
+      community.routeros.command:
+        commands:
+          - "/system identity set name={{ inventory_hostname }}"
+
+    - name: Appliquer les commandes de config spécifiques au routeur
+      community.routeros.command:
+        commands: "{{ router_config_commands }}"
+      when: router_config_commands is defined and router_config_commands | length > 0
+
+    - name: Vérifier l'identité appliquée
+      community.routeros.command:
+        commands:
+          - "/system identity print"
+      register: identity_check
+
+    - name: Afficher le résultat
+      ansible.builtin.debug:
+        msg: "{{ inventory_hostname }} -> {{ identity_check.stdout_lines[0] }}"

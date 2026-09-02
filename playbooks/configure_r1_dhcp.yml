@@ -1,0 +1,32 @@
+---
+# Preuve de bout en bout : Ansible CONFIGURE le MikroTik r1, joint en SSH
+# via son IP obtenue par DHCP (pas de bootstrap console nécessaire ici).
+- name: Configurer r1 via SSH (community.routeros)
+  hosts: routers
+  gather_facts: false
+  tasks:
+    - name: Lire l'identité et les adresses AVANT
+      community.routeros.command:
+        commands:
+          - /system identity print
+          - /ip address print
+      register: avant
+
+    - name: Afficher l'état AVANT
+      ansible.builtin.debug:
+        var: avant.stdout_lines
+
+    - name: CONFIGURER — renommer l'équipement (écriture)
+      community.routeros.command:
+        commands:
+          - /system identity set name=r1-ansible
+
+    - name: Relire l'identité APRÈS
+      community.routeros.command:
+        commands:
+          - /system identity print
+      register: apres
+
+    - name: Afficher l'état APRÈS (doit montrer r1-ansible)
+      ansible.builtin.debug:
+        var: apres.stdout_lines
