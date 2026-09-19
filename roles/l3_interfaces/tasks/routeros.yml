@@ -1,0 +1,30 @@
+---
+# Traduction RouterOS : une interface L3 sur un VLAN = sous-interface
+# "interface vlan" posée sur le trunk parent, puis une adresse IP dessus.
+
+- name: Sous-interfaces 802.1Q
+  community.routeros.api_modify:
+    path: interface vlan
+    data: "{{ _vlan_ifs }}"
+    handle_absent_entries: remove
+  vars:
+    _vlan_ifs: >-
+      {%- set out = [] -%}
+      {%- for i in l3_interfaces -%}
+        {%- set _ = out.append({'name': i.name, 'vlan-id': i.vlan, 'interface': i.parent}) -%}
+      {%- endfor -%}
+      {{ out }}
+
+- name: Adresses IP des interfaces L3
+  community.routeros.api_modify:
+    path: ip address
+    data: "{{ _addresses }}"
+    # ignore : l'IP de management (ether1, posée au bootstrap) doit rester.
+    handle_absent_entries: ignore
+  vars:
+    _addresses: >-
+      {%- set out = [] -%}
+      {%- for i in l3_interfaces -%}
+        {%- set _ = out.append({'address': i.ipv4, 'interface': i.name}) -%}
+      {%- endfor -%}
+      {{ out }}

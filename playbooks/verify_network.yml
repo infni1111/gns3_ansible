@@ -1,0 +1,88 @@
+---
+# PHASE 3 — Vérification de bout en bout du labo.
+#
+#   1. Spanning-tree : un seul pont racine (le switch de plus basse priorité)
+#      et la boucle sw1⇄sw2 coupée par exactement un port "alternate".
+#   2. Connectivité : chaque terminal pingue tous les autres + sa passerelle.
+#      Le TTL reçu prouve le chemin : 64 = même VLAN (commuté),
+#      63 = VLAN différent (routé par r1 : un saut L3 décrémente le TTL).
+#
+# Assertions neutres : les rôles ne remontent que des faits normalisés.
+
+- name: Spanning-tree — collecte
+  hosts: switches
+  gather_facts: false
+  vars:
+    ansible_connection: local
+  module_defaults:
+    group/community.routeros.api:
+      hostname: "{{ ansible_host }}"
+      username: "{{ ansible_user }}"
+      password: "{{ ansible_password }}"
+      tls: "{{ routeros_api_tls }}"
+  roles:
+    - stp_state
+
+- name: Spanning-tree — contrôle
+  hosts: localhost
+  gather_facts: false
+  vars:
+    sw: "{{ groups['switches'] }}"
+    expected_root: "{{ sw | map('extract', hostvars) | sort(attribute='stp.priority') | map(attribute='inventory_hostname') | first }}"
+    roots: "{{ sw | map('extract', hostvars) | selectattr('stp_is_root') | map(attribute='inventory_hostname') | list }}"
+    alternates: "{{ sw | map('extract', hostvars) | map(attribute='stp_ports') | flatten | selectattr('role', 'eq', 'alternate') | list }}"
+  tasks:
+    - name: Un seul pont racine, celui de plus basse priorité
+      ansible.builtin.assert:
+        that:
+          - roots | length == 1
+          - roots[0] == expected_root
+        success_msg: "Racine STP : {{ roots[0] }} (attendu {{ expected_root }})"
+        fail_msg: "Racines STP : {{ roots }} — attendu {{ expected_root }} seul"
+
+    - name: La boucle est coupée par exactement un port alternate
+      ansible.builtin.assert:
+        that: alternates | length == 1
+        success_msg: "Port bloqué : {{ alternates[0].name }} ({{ alternates[0].role }})"
+        fail_msg: "Ports alternate : {{ alternates }}"
+
+- name: Terminaux — adresses
+  hosts: terminals
+  gather_facts: false
+  roles:
+    - host_addressing   # idempotent : ne redemande pas de bail, mémorise terminal_ip/gw
+
+- name: Terminaux — matrice de ping
+  hosts: terminals
+  gather_facts: false
+  vars:
+    my_net: "{{ terminal_ip | regex_replace('\\.[0-9]+$', '') }}"
+    targets: >-
+      {%- set out = [{'name': 'passerelle', 'ip': terminal_gw}] -%}
+      {%- for h in groups['terminals'] | difference([inventory_hostname]) -%}
+        {%- set _ = out.append({'name': h, 'ip': hostvars[h].terminal_ip}) -%}
+      {%- endfor -%}
+      {{ out }}
+  tasks:
+    - name: Ping
+      ansible.builtin.command:
+        argv: [python3, "{{ console_exec }}", --host, "{{ gns3_console_host }}", --wait, "5",
+               "{{ gns3_console_port }}", "ping {{ item.ip }} -c 3"]
+      loop: "{{ targets }}"
+      loop_control:
+        label: "{{ inventory_hostname }} → {{ item.name }} ({{ item.ip }})"
+      register: pings
+      changed_when: false
+
+    - name: Joignable, avec le TTL attendu
+      ansible.builtin.assert:
+        that:
+          - item.stdout is search('bytes from')
+          - item.item.name == 'passerelle' or item.stdout is search('ttl=' ~ _ttl)
+        success_msg: "{{ inventory_hostname }} → {{ item.item.name }} OK (ttl={{ _ttl }}, {{ 'même VLAN' if _ttl == 64 else 'routé par r1' }})"
+        fail_msg: "{{ inventory_hostname }} → {{ item.item.name }} : {{ item.stdout_lines | select('search', 'bytes|timeout|reach') | list }}"
+      loop: "{{ pings.results }}"
+      loop_control:
+        label: "{{ inventory_hostname }} → {{ item.item.name }}"
+      vars:
+        _ttl: "{{ 64 if (item.item.ip | regex_replace('\\.[0-9]+$', '')) == my_net else 63 }}"

@@ -1,0 +1,5 @@
+---
+# Couche neutre : on ne fait que choisir la traduction propre à l'OS de l'hôte.
+# Ajouter un vendeur = ajouter roles/switching/tasks/<net_os>.yml, sans toucher aux données.
+- name: "switching — traduction pour {{ net_os }}"
+  ansible.builtin.include_tasks: "{{ net_os }}.yml"

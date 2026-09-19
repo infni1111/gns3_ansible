@@ -1,0 +1,24 @@
+---
+# Équipements MikroTik RouterOS (routeurs ET switches CHR).
+#
+# net_os choisit la couche de traduction : chaque rôle charge
+# roles/<rôle>/tasks/routeros.yml pour ces hôtes.
+net_os: routeros
+
+# IP de management posée par le bootstrap console (voir group_vars/all.yml).
+ansible_host: "{{ mgmt_ip }}"
+ansible_user: admin
+# CHR 7.x exige un mot de passe non vide : le bootstrap a posé mgmt_password.
+ansible_password: "{{ mgmt_password }}"
+
+# Accès SSH (playbooks/configure_routers.yml, commandes RouterOS) :
+#   collection community.routeros ; paramiko 4.x gère mal la clé ssh-rsa de
+#   RouterOS → libssh (pip install ansible-pylibssh).
+ansible_connection:  ansible.netcommon.network_cli
+ansible_network_os:  community.routeros.routeros
+ansible_network_cli_ssh_type: libssh
+ansible_become:      false
+
+# Les rôles, eux, passent par l'API RouterOS (community.routeros.api_modify :
+# déclaratif et idempotent) depuis le contrôleur — pip install librouteros.
+routeros_api_tls: false     # port 8728 en clair : réseau de management de lab

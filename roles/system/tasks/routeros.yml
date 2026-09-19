@@ -1,0 +1,6 @@
+---
+- name: Nom d'hôte = nom d'inventaire
+  community.routeros.api_modify:
+    path: system identity
+    data:
+      - name: "{{ inventory_hostname }}"

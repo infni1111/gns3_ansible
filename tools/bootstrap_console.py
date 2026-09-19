@@ -130,6 +130,7 @@ def push_config(child, mgmt_ip, prefix, iface, new_password):
     cmds = [
         f"/ip address add address={mgmt_ip}/{prefix} interface={iface}",
         "/ip service enable ssh",
+        "/ip service enable api",     # phase 2 : community.routeros.api_modify
         f"/user set admin password={new_password}",
         "/ip address print",
     ]

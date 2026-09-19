@@ -1,0 +1,10 @@
+---
+# sw2 — switch d'accès. Priorité STP par défaut : sw1 (4096) sera la racine,
+# et l'un des deux trunks vers sw1 passera en "alternate" (bloqué).
+stp: { mode: rstp, priority: 32768 }
+
+switchports:
+  - { name: ether2, mode: trunk,  vlans: [10, 20], description: "sw1 lien A" }
+  - { name: ether3, mode: trunk,  vlans: [10, 20], description: "sw1 lien B (redondant)" }
+  - { name: ether4, mode: access, vlan: 10,        description: "pc3" }
+  - { name: ether5, mode: access, vlan: 20,        description: "pc4" }

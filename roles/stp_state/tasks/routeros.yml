@@ -1,0 +1,21 @@
+---
+- name: Rôles STP des ports du bridge
+  community.routeros.api:
+    path: interface bridge port
+  register: _ports
+
+- name: Pont racine ?
+  community.routeros.api:
+    path: interface bridge
+    cmd: "monitor numbers=bridge1 once=yes"
+  register: _bridge
+
+- name: Normaliser (RouterOS "alternate-port" → "alternate")
+  ansible.builtin.set_fact:
+    stp_is_root: "{{ _bridge.msg[0]['root-bridge'] | bool }}"
+    stp_ports: >-
+      {%- set out = [] -%}
+      {%- for p in _ports.msg -%}
+        {%- set _ = out.append({'name': p.interface, 'role': p.role | regex_replace('-port$', '')}) -%}
+      {%- endfor -%}
+      {{ out }}

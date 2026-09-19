@@ -1,0 +1,32 @@
+---
+# Traduction VPCS : un terminal VPCS n'a ni SSH ni API, seulement sa console
+# GNS3. On la pilote depuis le contrôleur avec tools/console_exec.py.
+
+- name: Lire l'adresse actuelle
+  ansible.builtin.command:
+    argv: [python3, "{{ console_exec }}", --host, "{{ gns3_console_host }}",
+           "{{ gns3_console_port }}", "show ip"]
+  register: _show
+  changed_when: false
+
+- name: Demander une adresse en DHCP (et la sauvegarder dans la config VPCS)
+  ansible.builtin.command:
+    argv: [python3, "{{ console_exec }}", --host, "{{ gns3_console_host }}", --wait, "8",
+           "{{ gns3_console_port }}", "ip dhcp", "save"]
+  register: _dhcp
+  when:
+    - host_ipv4 == 'dhcp'
+    - _show.stdout is search('IP/MASK\s*:\s*0\.0\.0\.0')
+  failed_when: _dhcp.stdout is not search('DORA IP')
+
+- name: Relire l'adresse obtenue
+  ansible.builtin.command:
+    argv: [python3, "{{ console_exec }}", --host, "{{ gns3_console_host }}",
+           "{{ gns3_console_port }}", "show ip"]
+  register: _show
+  changed_when: false
+
+- name: Mémoriser l'adresse du terminal
+  ansible.builtin.set_fact:
+    terminal_ip: "{{ _show.stdout | regex_search('IP/MASK\\s*:\\s*([0-9.]+)/', '\\1') | first }}"
+    terminal_gw: "{{ _show.stdout | regex_search('GATEWAY\\s*:\\s*([0-9.]+)', '\\1') | first }}"

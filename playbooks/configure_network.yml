@@ -1,0 +1,53 @@
+---
+# PHASE 2 — Configuration réseau à partir du modèle de données NEUTRE
+# (inventory/group_vars/all.yml + inventory/host_vars/*.yml).
+#
+# Aucune commande vendeur ici : chaque rôle choisit sa traduction selon net_os
+# (roles/<rôle>/tasks/routeros.yml, …/vpcs.yml).
+#
+#   system          → nom d'hôte                        (tous les RouterOS)
+#   switching       → VLAN 802.1Q, ports access/trunk, RSTP   (switches)
+#   l3_interfaces   → inter-VLAN routing (router-on-a-stick)  (routeurs)
+#   dhcp_server     → un serveur DHCP par VLAN                (routeurs)
+#   host_addressing → adressage des terminaux (DHCP)          (terminaux)
+#
+# Les équipements RouterOS sont pilotés par leur API (community.routeros.api_modify) :
+# déclaratif et idempotent — une 2e exécution doit afficher changed=0.
+# Prérequis contrôleur : pip install librouteros ; collection community.routeros.
+
+- name: RouterOS — socle commun
+  hosts: routeros
+  gather_facts: false
+  vars: &api_vars
+    ansible_connection: local   # l'API se joint depuis le contrôleur
+  module_defaults: &api_defaults
+    group/community.routeros.api:
+      hostname: "{{ ansible_host }}"
+      username: "{{ ansible_user }}"
+      password: "{{ ansible_password }}"
+      tls: "{{ routeros_api_tls }}"
+  roles:
+    - system
+
+- name: Switches — VLAN, trunks, spanning-tree
+  hosts: switches
+  gather_facts: false
+  vars: *api_vars
+  module_defaults: *api_defaults
+  roles:
+    - switching
+
+- name: Routeurs — routage inter-VLAN et DHCP
+  hosts: routers
+  gather_facts: false
+  vars: *api_vars
+  module_defaults: *api_defaults
+  roles:
+    - l3_interfaces
+    - dhcp_server
+
+- name: Terminaux — adressage
+  hosts: terminals
+  gather_facts: false
+  roles:
+    - host_addressing

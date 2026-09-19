@@ -103,9 +103,14 @@ gns3_ansible/
 ├── inventory/
 │   ├── hosts.yml
 │   └── gns3_dynamic.yml        (généré automatiquement par le déploiement)
-├── group_vars/all.yml          (mgmt_network, mgmt_password — voir sécurité)
+├── inventory/group_vars/       (all.yml : mgmt + modèle neutre ; routeros/routers/switches/vpcs.yml)
+├── inventory/host_vars/        (intention réseau par équipement : r1, sw1, sw2)
 ├── vars/gns3.yml
-├── roles/                      (vide pour l'instant)
+├── roles/                      (system, switching, l3_interfaces, dhcp_server,
+│                                host_addressing, stp_state — main.yml neutre +
+│                                <net_os>.yml de traduction : routeros, vpcs)
+├── labs/fondamentaux.py        (crée + câble + démarre le labo, génère l'inventaire)
+├── tools/mgmt_net.sh           (réseau de management 192.168.100.0/24 hôte ↔ nœuds)
 ├── test_deploy.py, test_dhcp_lab.py, test_shell.py
 ├── ansible.cfg, site.yml
 └── _Docs/                      (ce fichier vivait ici avant, déplacé)
@@ -120,7 +125,7 @@ topologie générique.
 
 ## 🔐 Sécurité — mot de passe de lab
 
-`group_vars/all.yml` contient `mgmt_password: "Lab123!"`, en clair, **par
+`inventory/group_vars/all.yml` contient `mgmt_password: "Lab123!"`, en clair, **par
 design documenté dans le fichier lui-même** : CHR 7.x impose un mot de passe
 non vide au premier login, les deux phases (bootstrap console + SSH) doivent
 s'accorder dessus. C'est un mot de passe de lab local (réseau de management
@@ -164,7 +169,7 @@ ont été relevés — à revérifier si le serveur a été recréé.)
 | 8 | Bootstrap console + config SSH de routeurs **MikroTik CHR réels** | ✅ Fait depuis (`bootstrap_routers.yml`, `configure_routers.yml`) |
 | 9 | Lab DHCP (`configure_r1_dhcp.yml`, `test_dhcp_lab.py`) | ✅ Fait depuis |
 | 10 | Mémoire embarquée dans l'image Docker `infni1111/gns3:full` | 🔜 **Demandé le 2026-09-01, pas encore fait** — voir section Docker Hub ci-dessus |
-| 11 | Topologie STP multi-switch + Kali + VPCs (mentionnée dans une version antérieure de cette mémoire) | ❓ Statut réel à vérifier — peut avoir été faite, changée d'approche, ou abandonnée au profit du travail MikroTik. **Ne pas supposer, demander à l'utilisateur ou vérifier `roles/` (actuellement vide) et les playbooks existants.** |
+| 11 | Labo « protocoles fondamentaux » : r1 + 2 switches CHR + 4 VPCS — VLAN/trunk 802.1Q, RSTP (boucle bloquée), inter-VLAN, DHCP, tout par Ansible depuis un modèle neutre | ✅ Fait le 2026-09-19 (Codespace) — `labs/fondamentaux.py` puis `ansible-playbook site.yml` ; vérifié par `verify_network.yml`, 2e passage changed=0 |
 | 12 | Interface web (remplacement du shell terminal) | ⬜ Mentionné comme idée future, pas commencé |
 
 ---

@@ -1,12 +1,15 @@
 ---
-# PHASE 1 — Bootstrap des routeurs MikroTik par la CONSOLE telnet GNS3.
+# PHASE 1 — Bootstrap des équipements MikroTik (routeurs ET switches CHR, groupe
+# `routeros`) par la CONSOLE telnet GNS3.
 #
-# But : poser une IP de management joignable + activer SSH, pour que la
-# phase 2 (configure_routers.yml, en SSH) puisse prendre le relais.
+# But : poser une IP de management joignable + activer SSH et l'API, pour que
+# la phase 2 (configure_network.yml, via l'API RouterOS) puisse prendre le relais.
+# Idempotent : un équipement dont l'API répond déjà sur son IP de management
+# est sauté — le relancer ne repasse pas par la console.
 #
 # Pourquoi par la console ? Un nœud GNS3 fraîchement créé n'a aucune IP : on
-# ne peut donc PAS encore le joindre en SSH. La console telnet (localhost:port,
-# exposée par GNS3 dès la création) est le seul point d'accès garanti.
+# ne peut donc PAS encore le joindre en SSH. La console telnet (exposée par
+# GNS3 dès la création) est le seul point d'accès garanti.
 #
 # Pourquoi appeler tools/bootstrap_console.py plutôt que le module expect ?
 #   - séquencement du boot (réveille la console, réessaie tant que le login
@@ -17,7 +20,7 @@
 #     session complet est bien plus robuste et débogable que des `responses`.
 # Le module expect ne couvrait aucun de ces cas proprement.
 #
-# Ce playbook tourne en local (les ports console sont sur l'hôte).
+# Ce playbook tourne sur le contrôleur (les ports console sont exposés par GNS3).
 #
 # Prérequis hôte :  paquet `telnet` + module python `pexpect`
 #   sudo apt install telnet && pip install pexpect
@@ -25,22 +28,31 @@
 # Pour CALER la séquence sur une nouvelle image, lance d'abord le mode observe :
 #   python3 tools/bootstrap_console.py observe --port <port-console>
 
-- name: Bootstrap MikroTik (console telnet -> IP mgmt + SSH)
-  hosts: routers
+- name: Bootstrap MikroTik (console telnet -> IP mgmt + SSH + API)
+  hosts: routeros
   gather_facts: false
-  connection: local
 
   vars:
-    # IP de management par convention : dernier octet = 10 + index du routeur.
-    # r1 -> .11, r2 -> .12 ...  (override possible via host_vars/<nom>.yml)
-    mgmt_ip: "{{ mgmt_network | regex_replace('0$', '') }}{{ 10 + (inventory_hostname | regex_replace('^[a-z]+', '') | int) }}"
+    # Variable de play : elle l'emporte sur le network_cli de
+    # inventory/group_vars/routeros.yml — ici tout se joue en local.
+    ansible_connection: local
+    # mgmt_ip vient de inventory/group_vars/all.yml (r1 -> .11, sw1 -> .21 …)
     mgmt_iface: "ether1"   # interface de management côté MikroTik
     bootstrap_script: "{{ playbook_dir }}/../tools/bootstrap_console.py"
-    # Log de session par routeur : indispensable pour déboguer une séquence ANSI.
+    # Log de session par équipement : indispensable pour déboguer une séquence ANSI.
     bootstrap_log: "/tmp/bootstrap_{{ inventory_hostname }}.log"
 
   tasks:
+    - name: Déjà bootstrappé ? (l'API répond sur l'IP de management)
+      ansible.builtin.wait_for:
+        host: "{{ mgmt_ip }}"
+        port: 8728
+        timeout: 3
+      register: already
+      ignore_errors: true
+
     - name: Jouer la séquence de bootstrap console
+      when: already is failed
       ansible.builtin.command:
         argv:
           - python3
@@ -63,20 +75,17 @@
       register: bootstrap
       changed_when: true
       # Le script peut sortir en erreur si la séquence ANSI dérape : on ne fait
-      # pas échouer toute la run ici, le wait_for SSH ci-dessous tranchera.
+      # pas échouer toute la run ici, le wait_for ci-dessous tranchera.
       failed_when: false
 
     - name: Tracer la sortie du bootstrap (debug)
+      when: bootstrap is not skipped
       ansible.builtin.debug:
         msg: "{{ bootstrap.stdout_lines | default([]) }} (log: {{ bootstrap_log }})"
 
-    - name: Mémoriser l'IP de management posée (pour la phase SSH)
-      ansible.builtin.set_fact:
-        ansible_host: "{{ mgmt_ip }}"
-
-    - name: Attendre que SSH réponde sur l'IP de management
+    - name: Attendre que l'API et SSH répondent sur l'IP de management
       ansible.builtin.wait_for:
         host: "{{ mgmt_ip }}"
-        port: 22
+        port: "{{ item }}"
         timeout: 60
-      delegate_to: localhost
+      loop: [8728, 22]

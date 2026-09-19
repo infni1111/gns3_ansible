@@ -1,0 +1,44 @@
+---
+# Traduction RouterOS d'un serveur DHCP = 3 objets liés :
+#   pool d'adresses → réseau (passerelle annoncée) → serveur sur l'interface.
+
+- name: Pools d'adresses
+  community.routeros.api_modify:
+    path: ip pool
+    data: "{{ _pools }}"
+    handle_absent_entries: remove
+  vars:
+    _pools: >-
+      {%- set out = [] -%}
+      {%- for d in dhcp_servers -%}
+        {%- set _ = out.append({'name': 'pool-' ~ d.interface,
+                                'ranges': d.range.start ~ '-' ~ d.range.end}) -%}
+      {%- endfor -%}
+      {{ out }}
+
+- name: Réseaux DHCP (passerelle annoncée aux clients)
+  community.routeros.api_modify:
+    path: ip dhcp-server network
+    data: "{{ _networks }}"
+    handle_absent_entries: remove
+  vars:
+    _networks: >-
+      {%- set out = [] -%}
+      {%- for d in dhcp_servers -%}
+        {%- set _ = out.append({'address': d.network, 'gateway': d.gateway}) -%}
+      {%- endfor -%}
+      {{ out }}
+
+- name: Serveurs DHCP
+  community.routeros.api_modify:
+    path: ip dhcp-server
+    data: "{{ _servers }}"
+    handle_absent_entries: remove
+  vars:
+    _servers: >-
+      {%- set out = [] -%}
+      {%- for d in dhcp_servers -%}
+        {%- set _ = out.append({'name': 'dhcp-' ~ d.interface, 'interface': d.interface,
+                                'address-pool': 'pool-' ~ d.interface, 'disabled': false}) -%}
+      {%- endfor -%}
+      {{ out }}

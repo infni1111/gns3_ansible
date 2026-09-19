@@ -1,0 +1,6 @@
+---
+# Lecture de l'état spanning-tree, normalisé en faits neutres :
+#   stp_is_root : bool         — cet équipement est-il le pont racine ?
+#   stp_ports   : [{name, role}] avec role ∈ root | designated | alternate | backup | disabled
+- name: "stp_state — traduction pour {{ net_os }}"
+  ansible.builtin.include_tasks: "{{ net_os }}.yml"

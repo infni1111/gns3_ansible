@@ -18,7 +18,7 @@ import yaml
 from .deploy import split_prefix
 
 # Préfixe utilisateur → (nom de groupe Ansible, variables de groupe par défaut)
-# Les vars de connexion réelles vivent dans group_vars/<groupe>.yml ;
+# Les vars de connexion réelles vivent dans inventory/group_vars/<groupe>.yml ;
 # ici on ne pose que ce qui dépend du type d'équipement.
 PREFIX_TO_GROUP = {
     "r": "routers",         # MikroTik CHR (RouterOS)
@@ -31,7 +31,7 @@ PREFIX_TO_GROUP = {
 }
 
 # Groupes parents par OS : c'est sur eux que s'accrochent les vars de
-# connexion et la couche de traduction vendeur (group_vars/routeros.yml…).
+# connexion et la couche de traduction vendeur (inventory/group_vars/routeros.yml…).
 OS_PARENT_GROUPS = {
     "routeros": ["routers", "switches"],
     "vpcs": ["guests", "terminals"],

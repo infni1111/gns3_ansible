@@ -2,17 +2,23 @@
 # Orchestrateur global de configuration des équipements GNS3.
 #
 # Prérequis : la topologie est déjà déployée et l'inventaire généré
-#   (inventory/gns3_dynamic.yml, produit automatiquement par le déploiement).
+#   (inventory/gns3_dynamic.yml, produit automatiquement par le déploiement,
+#    ex: python3 labs/fondamentaux.py), réseau de management monté
+#   (tools/mgmt_net.sh).
 #
 # Lancement complet :
 #   ansible-playbook site.yml
 #
 # Ou phase par phase :
 #   ansible-playbook playbooks/bootstrap_routers.yml     # phase 1 (console)
-#   ansible-playbook playbooks/configure_routers.yml     # phase 2 (SSH)
+#   ansible-playbook playbooks/configure_network.yml     # phase 2 (API, modèle neutre)
+#   ansible-playbook playbooks/verify_network.yml        # phase 3 (tests)
 
-# Phase 1 — bootstrap par console (pose IP mgmt + SSH)
+# Phase 1 — bootstrap par console (pose IP mgmt + SSH + API)
 - import_playbook: playbooks/bootstrap_routers.yml
 
-# Phase 2 — configuration native en SSH
-- import_playbook: playbooks/configure_routers.yml
+# Phase 2 — configuration réseau depuis le modèle de données neutre
+- import_playbook: playbooks/configure_network.yml
+
+# Phase 3 — vérification de bout en bout
+- import_playbook: playbooks/verify_network.yml

@@ -1,0 +1,61 @@
+---
+# Traduction RouterOS du modèle "switching" (vlans / switchports / stp) :
+#   - un bridge unique bridge1 = le switch, avec vlan-filtering (802.1Q) et RSTP ;
+#   - port access  → bridge port pvid=<vlan>, trames non taguées uniquement ;
+#   - port trunk   → bridge port, trames taguées uniquement ;
+#   - chaque VLAN  → entrée "bridge vlan" : ports taggés (trunks) / non taggés (access).
+# ether1 (management) reste HORS du bridge : activer vlan-filtering ne coupe
+# donc jamais l'accès d'Ansible.
+
+- name: Bridge = switch 802.1Q + spanning-tree
+  community.routeros.api_modify:
+    path: interface bridge
+    data:
+      - name: bridge1
+        vlan-filtering: true
+        protocol-mode: "{{ stp.mode }}"
+        priority: "{{ '0x%x' | format(stp.priority) }}"
+        comment: "switch - gere par Ansible"   # ASCII : encodage par defaut de l API
+    handle_absent_entries: ignore
+
+- name: Ports du switch (access / trunk)
+  community.routeros.api_modify:
+    path: interface bridge port
+    data: "{{ _ports }}"
+    handle_absent_entries: remove    # le bridge ne contient QUE les ports déclarés
+  vars:
+    _ports: >-
+      {%- set out = [] -%}
+      {%- for p in switchports -%}
+        {%- if p.mode == 'access' -%}
+          {%- set _ = out.append({'bridge': 'bridge1', 'interface': p.name, 'pvid': p.vlan,
+                                  'frame-types': 'admit-only-untagged-and-priority-tagged',
+                                  'comment': p.description | default(p.name)}) -%}
+        {%- else -%}
+          {%- set _ = out.append({'bridge': 'bridge1', 'interface': p.name,
+                                  'frame-types': 'admit-only-vlan-tagged',
+                                  'comment': p.description | default(p.name)}) -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {{ out }}
+
+- name: Table des VLAN (ports taggés / non taggés)
+  community.routeros.api_modify:
+    path: interface bridge vlan
+    data: "{{ _vlans }}"
+    handle_absent_entries: remove
+  vars:
+    _vlans: >-
+      {%- set out = [] -%}
+      {%- for v in vlans -%}
+        {%- set tagged = switchports | selectattr('mode', 'eq', 'trunk')
+                           | selectattr('vlans', 'contains', v.id) | map(attribute='name') | list -%}
+        {%- set untagged = switchports | selectattr('mode', 'eq', 'access')
+                           | selectattr('vlan', 'eq', v.id) | map(attribute='name') | list -%}
+        {%- if tagged or untagged -%}
+          {%- set _ = out.append({'bridge': 'bridge1', 'vlan-ids': v.id | string,
+                                  'tagged': tagged | join(','), 'untagged': untagged | join(','),
+                                  'comment': v.name}) -%}
+        {%- endif -%}
+      {%- endfor -%}
+      {{ out }}

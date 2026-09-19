@@ -1,0 +1,10 @@
+---
+# sw1 — switch de distribution, racine du spanning-tree.
+stp: { mode: rstp, priority: 4096 }
+
+switchports:
+  - { name: ether2, mode: trunk,  vlans: [10, 20], description: "uplink r1" }
+  - { name: ether3, mode: trunk,  vlans: [10, 20], description: "sw2 lien A" }
+  - { name: ether4, mode: trunk,  vlans: [10, 20], description: "sw2 lien B (redondant)" }
+  - { name: ether5, mode: access, vlan: 10,        description: "pc1" }
+  - { name: ether6, mode: access, vlan: 20,        description: "pc2" }

@@ -6,10 +6,14 @@ gns3_host: "http://localhost:3080/v2"
 
 # Réseau de management du lab : sous-réseau où chaque équipement reçoit
 # une IP joignable depuis l'hôte (posée pendant le bootstrap console).
-# Convention : l'octet final = index du nœud (r1 -> .11, r2 -> .12, ...).
+# Convention : octet final = mgmt_ip_offset du groupe + index du nœud
+#   routeurs : r1 -> .11, r2 -> .12 …   switches : sw1 -> .21, sw2 -> .22 …
+# (le réseau est monté côté hôte par tools/mgmt_net.sh)
 mgmt_network: "192.168.100.0"
 mgmt_prefix: 24
 mgmt_gateway: "192.168.100.1"
+mgmt_ip_offset: 10
+mgmt_ip: "{{ mgmt_network | regex_replace('0$', '') }}{{ mgmt_ip_offset | int + (inventory_hostname | regex_replace('^[a-z]+', '') | int) }}"
 
 # Mot de passe admin posé pendant le bootstrap console et réutilisé en phase SSH.
 # CHR 7.x IMPOSE un mot de passe non vide au premier login : on ne peut donc pas
@@ -17,3 +21,12 @@ mgmt_gateway: "192.168.100.1"
 # sur cette valeur (bootstrap --new-password ET ansible_password en SSH).
 # À surcharger (vault de préférence) en dehors d'un lab.
 mgmt_password: "Lab123!"
+
+# ---------------------------------------------------------------------------
+# INTENTION RÉSEAU du labo courant — modèle de données NEUTRE (aucune syntaxe
+# vendeur). Les rôles traduisent ce modèle pour chaque OS (roles/*/tasks/<os>.yml).
+# Détail par équipement : inventory/host_vars/<nom>.yml
+# ---------------------------------------------------------------------------
+vlans:
+  - { id: 10, name: USERS }
+  - { id: 20, name: ADMIN }

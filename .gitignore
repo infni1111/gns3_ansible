@@ -1,2 +1,5 @@
 __pycache__/
 *.pyc
+
+# Inventaire régénéré à chaque déploiement (IDs/ports propres au serveur GNS3)
+inventory/gns3_dynamic.yml

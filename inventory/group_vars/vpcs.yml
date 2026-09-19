@@ -1,0 +1,11 @@
+---
+# Terminaux VPCS : aucune pile IP de gestion, on les pilote par leur console
+# GNS3 (telnet) depuis le contrôleur → roles/*/tasks/vpcs.yml.
+net_os: vpcs
+ansible_connection: local
+
+# Adressage des terminaux (modèle neutre) : dhcp (seul mode traduit pour l’instant)
+host_ipv4: dhcp
+
+# Client console utilisé par la traduction vpcs (chemin relatif à inventory/)
+console_exec: "{{ inventory_dir }}/../tools/console_exec.py"
