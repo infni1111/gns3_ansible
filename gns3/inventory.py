@@ -5,7 +5,7 @@
 # et Ansible (qui a besoin d'un inventaire pour atteindre les équipements).
 #
 # Chaque nœud est rangé dans un groupe selon son préfixe utilisateur
-# (r=routers, s=switches, f=firewalls, g=guests, c=clouds). On exporte pour
+# (r=routers, sw=switches, pc=terminals, …). On exporte pour
 # chaque nœud ses infos de console GNS3 (host/port/type), seul point d'accès
 # garanti dès la création — avant toute config réseau.
 #
@@ -15,15 +15,26 @@
 
 import yaml
 
+from .deploy import split_prefix
+
 # Préfixe utilisateur → (nom de groupe Ansible, variables de groupe par défaut)
 # Les vars de connexion réelles vivent dans group_vars/<groupe>.yml ;
 # ici on ne pose que ce qui dépend du type d'équipement.
 PREFIX_TO_GROUP = {
-    "r": "routers",     # MikroTik CHR (RouterOS)
-    "s": "switches",    # switch Ethernet GNS3 (non configurable)
-    "f": "firewalls",   # FortiGate
-    "g": "guests",      # VPCS / Linux
-    "c": "clouds",      # nœud Cloud (pont vers l'hôte)
+    "r": "routers",         # MikroTik CHR (RouterOS)
+    "sw": "switches",       # MikroTik CHR en mode switch (bridge) — manageable
+    "s": "gns3_switches",   # switch Ethernet GNS3 intégré (non configurable)
+    "f": "firewalls",       # FortiGate
+    "g": "guests",          # VPCS / Linux
+    "pc": "terminals",      # VPCS utilisé comme poste utilisateur
+    "c": "clouds",          # nœud Cloud (pont vers l'hôte)
+}
+
+# Groupes parents par OS : c'est sur eux que s'accrochent les vars de
+# connexion et la couche de traduction vendeur (group_vars/routeros.yml…).
+OS_PARENT_GROUPS = {
+    "routeros": ["routers", "switches"],
+    "vpcs": ["guests", "terminals"],
 }
 
 # Console host : où GNS3 expose les consoles. Sur une install Docker locale
@@ -47,9 +58,14 @@ class AnsibleInventory:
         children: dict[str, dict] = {}
 
         for uid, node in self.result.nodes_ok.items():
-            group = PREFIX_TO_GROUP.get(uid[0], "ungrouped")
+            group = PREFIX_TO_GROUP.get(split_prefix(uid), "ungrouped")
             children.setdefault(group, {"hosts": {}})
             children[group]["hosts"][uid] = self._host_vars(uid, node)
+
+        for parent, members in OS_PARENT_GROUPS.items():
+            present = [g for g in members if g in children]
+            if present:
+                children[parent] = {"children": {g: {} for g in present}}
 
         return {
             "all": {

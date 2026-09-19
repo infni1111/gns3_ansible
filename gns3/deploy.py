@@ -15,14 +15,35 @@ from .exceptions import GNS3NotFoundError, GNS3AlreadyExistsError
 # ------------------------------------------------------------------
 # Mapping préfixe utilisateur → nom de template GNS3 réel
 # Modifie ici si tu changes de templates sur le serveur.
+# Les préfixes peuvent faire plusieurs lettres : c'est le plus LONG préfixe
+# correspondant qui gagne (sw1 → "sw", s1 → "s").
 # ------------------------------------------------------------------
 PREFIX_TO_TEMPLATE = {
     "r": "MikroTik CHR 7.22.1",
     "s": "Ethernet switch",
+    "sw": "MikroTik CHR 7.22.1",   # switch MANAGEABLE (CHR en mode bridge) — pilotable par Ansible
     "f": "FortiGate VM 7.6.6",
     "g": "VPCS",
+    "pc": "VPCS",                  # terminal
     "c":"Cloud"
 }
+
+# Types de nœuds GNS3 à UN adaptateur multi-ports : l'interface eN est le
+# port N de l'adaptateur 0. Pour tous les autres (qemu, docker, vpcs…),
+# chaque interface est un adaptateur distinct : eN = adaptateur N, port 0.
+SINGLE_ADAPTER_TYPES = {
+    "ethernet_switch", "ethernet_hub", "cloud", "nat",
+    "frame_relay_switch", "atm_switch",
+}
+
+
+def split_prefix(user_id: str) -> str:
+    """Préfixe d'un identifiant utilisateur (plus long préfixe connu : sw1 → sw)."""
+    letters = user_id.rstrip("0123456789")
+    for n in range(len(letters), 0, -1):
+        if letters[:n] in PREFIX_TO_TEMPLATE:
+            return letters[:n]
+    return letters
 
 # Espacement automatique des nœuds sur le canvas GNS3
 CANVAS_X_START  = 0
@@ -38,24 +59,28 @@ class DeployResult:
     def __init__(self):
         self.project_id   = None
         self.project_name = None
-        self.nodes_ok     = {}   # node_id_user (ex: r1) → GNS3Node
+        self.nodes_ok     = {}   # node_id_user (ex: r1) → GNS3Node (créé OU réutilisé)
         self.nodes_fail   = {}   # node_id_user → message d'erreur
-        self.links_ok     = []   # liste de GNS3Link
+        self.links_ok     = []   # liste de GNS3Link (créés OU réutilisés)
         self.links_fail   = []   # liste de dict {link_repr, error}
+        # Idempotence : ce qui existait déjà et a été réutilisé tel quel
+        self.nodes_existing = set()   # node_id_user
+        self.links_existing = 0
 
     def summary(self):
         print("\n╔══════════════════════════════════════════╗")
         print("║          RAPPORT DE DÉPLOIEMENT          ║")
         print("╚══════════════════════════════════════════╝")
         print(f"  Projet  : {self.project_name}  (id={self.project_id})")
-        print(f"\n  Nœuds créés    : {len(self.nodes_ok)}")
+        print(f"\n  Nœuds          : {len(self.nodes_ok)}  (dont {len(self.nodes_existing)} déjà existants)")
         for uid, node in self.nodes_ok.items():
-            print(f"    ✔  {uid:5}  →  {node.name:30}  id={node.id}")
+            tag = "=" if uid in self.nodes_existing else "✔"
+            print(f"    {tag}  {uid:5}  →  {node.name:30}  id={node.id}")
         if self.nodes_fail:
             print(f"\n  Nœuds en erreur : {len(self.nodes_fail)}")
             for uid, err in self.nodes_fail.items():
                 print(f"    ✘  {uid:5}  →  {err}")
-        print(f"\n  Liens créés    : {len(self.links_ok)}")
+        print(f"\n  Liens          : {len(self.links_ok)}  (dont {self.links_existing} déjà existants)")
         for lnk in self.links_ok:
             print(f"    ✔  {lnk}")
         if self.links_fail:
@@ -100,15 +125,29 @@ class GNS3Deployer:
         # 2. Collecter tous les node_id uniques présents dans la topologie
         unique_node_ids = self._collect_node_ids(topology)
 
-        # 3. Créer les nœuds
+        # 3. Créer les nœuds — ou réutiliser ceux qui portent déjà ce nom.
+        #    Sans ça, GNS3 renomme le doublon (r1 → r2) et chaque redéploiement
+        #    empile une copie de la topologie.
+        existing_nodes = {n["name"]: n["node_id"] for n in GNS3Node(self.client, self._project.id).list_all()}
         node_map = {}   # node_id_user → GNS3Node (pour les liens)
         for idx, uid in enumerate(sorted(unique_node_ids)):
             try:
-                gns3_node = self._create_node(uid, idx)
+                if uid in existing_nodes:
+                    gns3_node = GNS3Node(self.client, self._project.id).load_by_id(existing_nodes[uid])
+                    result.nodes_existing.add(uid)
+                    print(f"  [nœud]   Existant : {uid:5} (réutilisé)")
+                else:
+                    gns3_node = self._create_node(uid, idx)
                 node_map[uid]         = gns3_node
                 result.nodes_ok[uid]  = gns3_node
             except Exception as e:
                 result.nodes_fail[uid] = str(e)
+
+        # Ports déjà câblés : (node_id, adapter, port) → link_id
+        existing_ports = {}
+        for lnk in GNS3Link(self.client, self._project.id).list_all():
+            for end in lnk["nodes"]:
+                existing_ports[(end["node_id"], end["adapter_number"], end["port_number"])] = lnk["link_id"]
 
         # 4. Créer les liens
         seen_links = set()   # évite les doublons (A-B == B-A)
@@ -143,6 +182,19 @@ class GNS3Deployer:
                     continue
 
                 try:
+                    end_a = (node_map[src.node_id].id, *self._gns3_port(node_map[src.node_id], src.adapter, src.port))
+                    end_b = (node_map[dst.node_id].id, *self._gns3_port(node_map[dst.node_id], dst.adapter, dst.port))
+                    id_a, id_b = existing_ports.get(end_a), existing_ports.get(end_b)
+                    if id_a and id_a == id_b:
+                        # Ce câble existe déjà exactement : rien à faire.
+                        result.links_ok.append(GNS3Link(self.client, self._project.id).load_by_id(id_a))
+                        result.links_existing += 1
+                        print(f"  [lien]   Existant : {link_repr} (réutilisé)")
+                        continue
+                    if id_a or id_b:
+                        # Un des deux ports est déjà pris par un AUTRE câble : on ne
+                        # débranche rien en silence, on signale le conflit.
+                        raise RuntimeError("port déjà câblé vers une autre extrémité")
                     gns3_link = self._create_link(
                         node_map[src.node_id], src.adapter, src.port,
                         node_map[dst.node_id], dst.adapter, dst.port,
@@ -168,7 +220,7 @@ class GNS3Deployer:
         return project
 
     def _resolve_template_id(self, prefix: str) -> str:
-        """Résout un préfixe utilisateur (r, s, f, g) en template_id GNS3."""
+        """Résout un préfixe utilisateur (r, s, sw, f, g, pc, c) en template_id GNS3."""
         template_name = PREFIX_TO_TEMPLATE.get(prefix)
         if template_name is None:
             raise ValueError(
@@ -192,7 +244,7 @@ class GNS3Deployer:
 
     def _create_node(self, user_id: str, index: int) -> GNS3Node:
         """Crée un nœud GNS3 à partir d'un identifiant utilisateur (ex: r1, s2)."""
-        prefix = user_id[0]
+        prefix = split_prefix(user_id)
         template_id = self._resolve_template_id(prefix)
 
         # Position automatique sur le canvas
@@ -212,22 +264,31 @@ class GNS3Deployer:
         node_b: GNS3Node, adapter_b: str, port_b: int,
     ) -> GNS3Link:
         """
-        Crée un lien GNS3.
-        Les adaptateurs utilisateur (e, w) sont mappés en adapter_number.
-        Convention : e → 0, w → 1
+        Crée un lien GNS3 entre deux interfaces utilisateur (ex: r1_e1 ↔ sw1_e1).
         """
-        adapter_map = {"e": 0, "w": 1}
-
-        adp_a = adapter_map.get(adapter_a, 0)
-        adp_b = adapter_map.get(adapter_b, 0)
+        adp_a, prt_a = self._gns3_port(node_a, adapter_a, port_a)
+        adp_b, prt_b = self._gns3_port(node_b, adapter_b, port_b)
 
         link = GNS3Link(self.client, self._project.id)
         link.create(
-            node_a_id=node_a.id, adapter_a=adp_a, port_a=port_a,
-            node_b_id=node_b.id, adapter_b=adp_b, port_b=port_b,
+            node_a_id=node_a.id, adapter_a=adp_a, port_a=prt_a,
+            node_b_id=node_b.id, adapter_b=adp_b, port_b=prt_b,
         )
         print(f"  [lien]   Créé : {node_a.name}_{adapter_a}{port_a} ↔ {node_b.name}_{adapter_b}{port_b}")
         return link
+
+    @staticmethod
+    def _gns3_port(node: GNS3Node, adapter: str, port: int) -> tuple:
+        """
+        Interface utilisateur (e, N) → (adapter_number, port_number) GNS3.
+          - switch/hub/cloud GNS3 : un seul adaptateur multi-ports → (0, N)
+          - qemu (CHR), docker, vpcs… : un adaptateur par interface → (N, 0)
+            (sur un CHR : e0 = ether1, e1 = ether2…)
+        Le type 'w' (WiFi) n'a pas de sens côté GNS3 : traité comme Ethernet.
+        """
+        if node.node_type in SINGLE_ADAPTER_TYPES:
+            return 0, port
+        return port, 0
 
     def _collect_node_ids(self, topology) -> set:
         """Collecte tous les node_id uniques présents dans la topologie."""

@@ -3,7 +3,9 @@ import sys, os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from gns3 import GNS3Client
-from gns3.deploy import GNS3Deployer, PREFIX_TO_TEMPLATE
+from gns3.deploy import GNS3Deployer, PREFIX_TO_TEMPLATE, split_prefix
+from gns3.node import GNS3Node
+from gns3.link import GNS3Link
 from gns3.project import GNS3Project
 from gns3.exceptions import GNS3NotFoundError
 from gns3.topology_builder import Topology, Link, Endpoint
@@ -53,8 +55,25 @@ def test_prefix_mapping():
     print("\n[TEST] Mapping préfixes...")
     expected = {"r", "s", "f", "g", "c"}
     actual   = set(PREFIX_TO_TEMPLATE.keys())
-    assert expected == actual, f"Mapping incomplet : {actual}"
+    assert expected <= actual, f"Mapping incomplet : {actual}"
     print("  ✔ Tous les préfixes présents.")
+
+def test_split_prefix():
+    print("\n[TEST] Préfixe le plus long...")
+    cases = {"r1": "r", "s12": "s", "sw1": "sw", "pc4": "pc", "g2": "g", "c1": "c"}
+    for uid, want in cases.items():
+        assert split_prefix(uid) == want, f"{uid} → {split_prefix(uid)} (attendu {want})"
+    print("  ✔ r1→r, s12→s, sw1→sw, pc4→pc.")
+
+def test_port_mapping():
+    print("\n[TEST] Interface utilisateur → adaptateur/port GNS3...")
+    class FakeNode:
+        def __init__(self, t): self.node_type = t
+    assert GNS3Deployer._gns3_port(FakeNode("ethernet_switch"), "e", 3) == (0, 3)
+    assert GNS3Deployer._gns3_port(FakeNode("cloud"), "e", 2) == (0, 2)
+    assert GNS3Deployer._gns3_port(FakeNode("qemu"), "e", 3) == (3, 0)
+    assert GNS3Deployer._gns3_port(FakeNode("vpcs"), "e", 0) == (0, 0)
+    print("  ✔ switch/cloud → (0, N) ; qemu/vpcs → (N, 0).")
 
 def test_topology_structure():
     print("\n[TEST] Structure topologie...")
@@ -107,13 +126,24 @@ def test_idempotent():
     deployer = GNS3Deployer(client, project_name=PROJECT_NAME)
     result   = deployer.deploy(build_topology())
     result.summary()
-    print("  ✔ Double déploiement sans crash.")
+
+    # Ce qui compte : l'état du SERVEUR n'a pas bougé (pas de c2/r2/s2/g2).
+    pid   = result.project_id
+    names = sorted(n["name"] for n in GNS3Node(client, pid).list_all())
+    links = GNS3Link(client, pid).list_all()
+    assert names == ["c1", "g1", "r1", "s1"], f"Nœuds dupliqués sur le serveur : {names}"
+    assert len(links) == 3, f"Liens dupliqués sur le serveur : {len(links)}"
+    assert result.nodes_existing == {"c1", "g1", "r1", "s1"}, f"Non réutilisés : {result.nodes_existing}"
+    assert result.links_existing == 3, f"Liens réutilisés : {result.links_existing}"
+    assert not result.nodes_fail and not result.links_fail
+    print("  ✔ 2e déploiement : 0 nœud créé, 0 lien créé.")
 
 # ------------------------------------------------------------------
 # Runner
 # ------------------------------------------------------------------
 
-UNIT_TESTS        = [test_prefix_mapping, test_topology_structure, test_collect_node_ids]
+UNIT_TESTS        = [test_prefix_mapping, test_split_prefix, test_port_mapping,
+                     test_topology_structure, test_collect_node_ids]
 INTEGRATION_TESTS = [test_ping, test_deploy, test_idempotent]
 
 def run_all():
